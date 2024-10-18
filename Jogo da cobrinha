@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jogo da Cobrinha - Mobile</title>
+    <style>
+        body { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background-color: #000; color: white; font-family: Arial, sans-serif; }
+        .scoreboard { display: flex; justify-content: space-between; width: 400px; margin-bottom: 10px; }
+        canvas { background-color: #333; border: 2px solid white; }
+        .controls { display: flex; flex-direction: column; align-items: center; margin-top: 10px; }
+        .button-row { display: flex; justify-content: center; margin: 5px 0; }
+        button { width: 60px; height: 60px; font-size: 24px; cursor: pointer; background-color: #444; color: white; border: none; border-radius: 10px; }
+        button:active { background-color: #555; }
+        #gameCanvas, .controls, .scoreboard, #shopScreen, #customizationScreen, #achievementsScreen { display: none; }
+        #startScreen { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
+        #startScreen button { width: 150px; height: 50px; font-size: 20px; margin: 10px; }
+        #backButton { position: absolute; top: 10px; left: 10px; font-size: 20px; cursor: pointer; background-color: #444; color: white; border: none; border-radius: 5px; padding: 10px; display: none; }
+        #shopButton, #customizationButton, #achievementsButton { position: absolute; top: 10px; font-size: 20px; cursor: pointer; background-color: #444; color: white; border: none; border-radius: 5px; padding: 10px; display: none; }
+        #shopButton { right: 140px; }
+        #customizationButton { right: 10px; }
+        #achievementsButton { right: 270px; }
+        .overlay { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.8); color: white; justify-content: center; align-items: center; flex-direction: column; }
+        .color-grid { display: grid; grid-template-columns: repeat(5, 60px); gap: 10px; margin-top: 20px; }
+        .color-box { width: 60px; height: 60px; border: 2px solid white; cursor: pointer; position: relative; }
+        .color-box.locked { opacity: 0.5; cursor: not-allowed; }
+        .color-box.unlocked { border: 3px solid lime; }
+        .price-tag { position: absolute; bottom: 5px; right: 5px; background-color: rgba(0, 0, 0, 0.7); color: white; padding: 2px 5px; border-radius: 3px; font-size: 12px; }
+        #achievementBar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background-color: #222;
+            color: white;
+            text-align: center;
+            padding: 10px;
+            display: none;
+            font-size: 18px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="startScreen">
+        <h1>Jogo da Cobrinha</h1>
+        <div id="startHighScore">High Score: 0</div>
+        <button id="startButton">Iniciar Jogo</button>
+        <button id="resetButton">Resetar Progresso</button>
+    </div>
+
+    <button id="backButton">Voltar</button>
+    <button id="shopButton">Loja</button>
+    <button id="customizationButton">Personalizar</button>
+    <button id="achievementsButton">Conquistas</button>
+
+    <div class="scoreboard">
+        <div id="highScore">High Score: 0</div>
+        <div id="score">Score: 0</div>
+        <div id="coins">Moedas: 0</div>
+    </div>
+
+    <canvas id="gameCanvas" width="400" height="400"></canvas>
+
+    <div class="controls">
+        <div class="button-row"><button id="up">↑</button></div>
+        <div class="button-row"><button id="left">←</button><button id="right">→</button></div>
+        <div class="button-row"><button id="down">↓</button></div>
+    </div>
+
+    <div class="controls">
+        <label for="speedControl">Velocidade:</label>
+        <input type="number" id="speedControl" min="0.5" max="5" step="0.1" value="3.5" style="width: 60px; text-align: center;">
+    </div>
+
+    <div id="shopScreen" class="overlay">
+        <h1>Loja de Cores</h1>
+        <div class="color-grid" id="colorGrid"></div>
+        <button id="closeShopButton">Fechar Loja</button>
+    </div>
+
+    <div id="customizationScreen" class="overlay">
+        <h1>Personalize a Cobra</h1>
+        <div class="color-grid" id="customizationGrid"></div>
+        <button id="closeCustomizationButton">Fechar Personalização</button>
+    </div>
+
+    <div id="achievementsScreen" class="overlay">
+        <h1>Conquistas Desbloqueadas</h1>
+        <ul id="achievementsList"></ul>
+        <button id="closeAchievementsButton">Fechar Conquistas</button>
+    </div>
+
+    <div id="achievementBar">Conquista Desbloqueada: </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scale = 20;
+        let snake, direction, food, coin, superCoin, score = 0, highScore = 0, coins = 0;
+        let fruitsEaten = 0;
+        let gameOverScreen = false;
+        let snakeColor = 'lime';
+        let gameSpeed = 3.5;
+        const colors = [
+            'red', 'blue', 'green', 'yellow', 'purple', 'orange', 'pink', 'cyan', 'magenta', 'brown',
+            'lime', 'navy', 'teal', 'aqua', 'salmon', 'coral', 'gold', 'silver', 'violet', 'maroon'
+        ];
+        let unlockedColors = ['lime'];
+        let achievements = {
+            firstTime: { unlocked: false, description: "Primeira vez jogando o jogo" },
+            coins100: { unlocked: false, description: "100 Moedas acumuladas" },
+            foundSuperCoin: { unlocked: false, description: "Encontrou a super moeda" },
+            firstCoinCollected: { unlocked: false, description: "Primeira moeda coletada" },
+            allColorsBought: { unlocked: false, description: "Todas as cores compradas" },
+            fiveColorsBought: { unlocked: false, description: "5 cores compradas" }
+        };
+
+        function loadGameData() {
+            highScore = localStorage.getItem('highScore') ? parseInt(localStorage.getItem('highScore')) : 0;
+            coins = localStorage.getItem('coins') ? parseInt(localStorage.getItem('coins')) : 0;
+            unlockedColors = localStorage.getItem('unlockedColors') ? JSON.parse(localStorage.getItem('unlockedColors')) : ['lime'];
+            document.getElementById('highScore').innerText = `High Score: ${highScore}`;
+            document.getElementById('coins').innerText = `Moedas: ${coins}`;
+            document.getElementById('startHighScore').innerText = `High Score: ${highScore}`;
+        }
+
+        function saveGameData() {
+            localStorage.setItem('highScore', highScore);
+            localStorage.setItem('coins', coins);
+            localStorage.setItem('unlockedColors', JSON.stringify(unlockedColors));
+        }
+
+        function resetGameData() {
+            localStorage.removeItem('highScore');
+            localStorage.removeItem('coins');
+            localStorage.removeItem('unlockedColors');
+            loadGameData();
+            alert('Progresso resetado!');
+        }
+
+        function initGame() {
+            snake = [{ x: 10, y: 10 }];
+            direction = { x: 1, y: 0 };
+            spawnFood();
+            coin = null;
+            superCoin = null;
+            fruitsEaten = 0;
+            score = 0;
+            document.getElementById('score').innerText = `Score: ${score}`;
+            document.getElementById('coins').innerText = `Moedas: ${coins}`;
+            gameOverScreen = false;
+            draw();
+            gameLoop();
+            unlockAchievement('firstTime');
+        }
+
+        function gameLoop() {
+            if (gameOverScreen) return;
+            const head = { x: snake[0].x + direction.x, y: snake[0].y + direction.y };
+
+            if (head.x < 0 || head.x >= canvas.width / scale || head.y < 0 || head.y >= canvas.height / scale || snake.some(segment => segment.x === head.x && segment.y === head.y)) {
+                gameOver();
+                return;
+            }
+
+            if (food && head.x === food.x && head.y === food.y) {
+                snake.unshift(head);
+                score++;
+                fruitsEaten++;
+                food = null;
+                spawnFood();
+                if (fruitsEaten >= 3) {
+                    spawnCoin();
+                    fruitsEaten = 0;
+                }
+                document.getElementById('score').innerText = `Score: ${score}`;
+            } else if (coin && head.x === coin.x && head.y === coin.y) {
+                collectCoin();
+                snake.unshift(head);
+            } else if (superCoin && head.x === superCoin.x && head.y === superCoin.y) {
+                collectSuperCoin();
+                snake.unshift(head);
+            } else {
+                snake.unshift(head);
+                snake.pop();
+            }
+
+            draw();
+            setTimeout(gameLoop, 1000 / gameSpeed);
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            snake.forEach(segment => {
+                ctx.fillStyle = snakeColor;
+                ctx.fillRect(segment.x * scale, segment.y * scale, scale, scale);
+            });
+
+            if (food) {
+                ctx.fillStyle = 'red';
+                ctx.fillRect(food.x * scale, food.y * scale, scale, scale);
+            }
+
+            if (coin) {
+                ctx.fillStyle = 'gold';
+                ctx.fillRect(coin.x * scale, coin.y * scale, scale, scale);
+            }
+
+            if (superCoin) {
+                ctx.fillStyle = 'purple';
+                ctx.fillRect(superCoin.x * scale, superCoin.y * scale, scale, scale);
+            }
+
+            if (gameOverScreen) {
+                showOverlay('Game Over', 'Clique para reiniciar');
+            }
+        }
+
+        function showOverlay(title, message) {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = 'red';
+            ctx.font = '24px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(title, canvas.width / 2, canvas.height / 2 - 10);
+            if (message) {
+                ctx.fillText(message, canvas.width / 2, canvas.height / 2 + 20);
+            }
+        }
+
+        function gameOver() {
+            gameOverScreen = true;
+            if (score > highScore) {
+                highScore = score;
+                document.getElementById('highScore').innerText = `High Score: ${highScore}`;
+                document.getElementById('startHighScore').innerText = `High Score: ${highScore}`;
+                saveGameData();
+            }
+            showOverlay('Game Over', 'Clique para reiniciar');
+        }
+
+        function restartGame() {
+            if (gameOverScreen) {
+                initGame();
+            }
+        }
+
+        function spawnFood() {
+            food = { x: Math.floor(Math.random() * canvas.width / scale), y: Math.floor(Math.random() * canvas.height / scale) };
+            if (snake.some(segment => segment.x === food.x && segment.y === food.y) || (coin && food.x === coin.x && food.y === coin.y) || (superCoin && food.x === superCoin.x && food.y === superCoin.y)) {
+                spawnFood();
+            }
+        }
+
+        function spawnCoin() {
+            if (Math.random() < 0.1) {
+                superCoin = { x: Math.floor(Math.random() * canvas.width / scale), y: Math.floor(Math.random() * canvas.height / scale) };
+                coin = null;
+            } else {
+                coin = { x: Math.floor(Math.random() * canvas.width / scale), y: Math.floor(Math.random() * canvas.height / scale) };
+                superCoin = null;
+            }
+
+            if (snake.some(segment => segment.x === (coin ? coin.x : superCoin.x) && segment.y === (coin ? coin.y : superCoin.y))) {
+                spawnCoin();
+            }
+        }
+
+        function collectCoin() {
+            coins += 5;
+            document.getElementById('coins').innerText = `Moedas: ${coins}`;
+            saveGameData();
+            coin = null;
+            if (coins >= 100) {
+                unlockAchievement('coins100');
+            }
+            unlockAchievement('firstCoinCollected');
+        }
+
+        function collectSuperCoin() {
+            coins += 50;
+            document.getElementById('coins').innerText = `Moedas: ${coins}`;
+            saveGameData();
+            superCoin = null;
+            unlockAchievement('foundSuperCoin');
+        }
+
+        function openShop() {
+            document.getElementById('shopScreen').style.display = 'flex';
+        }
+
+        function closeShop() {
+            document.getElementById('shopScreen').style.display = 'none';
+        }
+
+        function openCustomization() {
+            document.getElementById('customizationScreen').style.display = 'flex';
+            initCustomizationGrid();
+        }
+
+        function closeCustomization() {
+            document.getElementById('customizationScreen').style.display = 'none';
+        }
+
+        function openAchievements() {
+            document.getElementById('achievementsScreen').style.display = 'flex';
+            initAchievementsList();
+        }
+
+        function closeAchievements() {
+            document.getElementById('achievementsScreen').style.display = 'none';
+        }
+
+        function showGameUI() {
+            document.getElementById('gameCanvas').style.display = 'block';
+            document.querySelector('.controls').style.display = 'flex';
+            document.querySelector('.scoreboard').style.display = 'flex';
+            document.getElementById('backButton').style.display = 'block';
+            document.getElementById('shopButton').style.display = 'block';
+            document.getElementById('customizationButton').style.display = 'block';
+            document.getElementById('achievementsButton').style.display = 'block';
+        }
+
+        function initShop() {
+            const colorGrid = document.getElementById('colorGrid');
+            colorGrid.innerHTML = '';
+
+            colors.forEach(color => {
+                const colorBox = document.createElement('div');
+                colorBox.classList.add('color-box');
+                colorBox.style.backgroundColor = color;
+
+                const priceTag = document.createElement('div');
+                priceTag.classList.add('price-tag');
+                priceTag.innerText = '10 Moedas';
+                colorBox.appendChild(priceTag);
+
+                if (unlockedColors.includes(color)) {
+                    colorBox.classList.add('unlocked');
+                    priceTag.style.display = 'none';
+                } else {
+                    colorBox.classList.add('locked');
+                    colorBox.addEventListener('click', () => {
+                        if (coins >= 10) {
+                            coins -= 10;
+                            unlockedColors.push(color);
+                            document.getElementById('coins').innerText = `Moedas: ${coins}`;
+                            saveGameData();
+                            initShop();
+                            if (unlockedColors.length >= 5) {
+                                unlockAchievement('fiveColorsBought');
+                            }
+                            if (unlockedColors.length === colors.length) {
+                                unlockAchievement('allColorsBought');
+                            }
+                        } else {
+                            alert('Você não tem moedas suficientes!');
+                        }
+                    });
+                }
+
+                colorGrid.appendChild(colorBox);
+            });
+        }
+
+        function initCustomizationGrid() {
+            const customizationGrid = document.getElementById('customizationGrid');
+            customizationGrid.innerHTML = '';
+
+            unlockedColors.forEach(color => {
+                const colorBox = document.createElement('div');
+                colorBox.classList.add('color-box');
+                colorBox.style.backgroundColor = color;
+                colorBox.addEventListener('click', () => {
+                    snakeColor = color;
+                    closeCustomization();
+                });
+                customizationGrid.appendChild(colorBox);
+            });
+        }
+
+        function initAchievementsList() {
+            const achievementsList = document.getElementById('achievementsList');
+            achievementsList.innerHTML = '';
+            Object.keys(achievements).forEach(key => {
+                const li = document.createElement('li');
+                li.innerText = achievements[key].description + (achievements[key].unlocked ? ' (Desbloqueada)' : ' (Bloqueada)');
+                achievementsList.appendChild(li);
+            });
+        }
+
+        function unlockAchievement(achievement) {
+            if (!achievements[achievement].unlocked) {
+                achievements[achievement].unlocked = true;
+                showAchievement(achievements[achievement].description);
+            }
+        }
+
+        function showAchievement(description) {
+            const achievementBar = document.getElementById('achievementBar');
+            achievementBar.innerText = `Conquista Desbloqueada: ${description}`;
+            achievementBar.style.display = 'block';
+            setTimeout(() => {
+                achievementBar.style.display = 'none';
+            }, 10000);
+        }
+
+        document.getElementById('up').addEventListener('click', () => { if (direction.y === 0) direction = { x: 0, y: -1};
+});
+        
+        document.getElementById('down').addEventListener('click', () => { 
+            if (direction.y === 0) direction = { x: 0, y: 1 }; 
+        });
+        
+        document.getElementById('left').addEventListener('click', () => { 
+            if (direction.x === 0) direction = { x: -1, y: 0 }; 
+        });
+        
+        document.getElementById('right').addEventListener('click', () => { 
+            if (direction.x === 0) direction = { x: 1, y: 0 }; 
+        });
+
+        document.getElementById('startButton').addEventListener('click', () => {
+            document.getElementById('startScreen').style.display = 'none';
+            showGameUI();
+            initGame();
+        });
+
+        document.getElementById('resetButton').addEventListener('click', () => {
+            resetGameData();
+        });
+
+        document.getElementById('backButton').addEventListener('click', () => {
+            document.getElementById('gameCanvas').style.display = 'none';
+            document.querySelector('.controls').style.display = 'none';
+            document.querySelector('.scoreboard').style.display = 'none';
+            document.getElementById('backButton').style.display = 'none';
+            document.getElementById('shopButton').style.display = 'none';
+            document.getElementById('customizationButton').style.display = 'none';
+            document.getElementById('achievementsButton').style.display = 'none';
+            document.getElementById('startScreen').style.display = 'flex';
+        });
+
+        document.getElementById('shopButton').addEventListener('click', openShop);
+        document.getElementById('closeShopButton').addEventListener('click', closeShop);
+
+        document.getElementById('customizationButton').addEventListener('click', openCustomization);
+        document.getElementById('closeCustomizationButton').addEventListener('click', closeCustomization);
+
+        document.getElementById('achievementsButton').addEventListener('click', openAchievements);
+        document.getElementById('closeAchievementsButton').addEventListener('click', closeAchievements);
+
+        document.getElementById('gameCanvas').addEventListener('click', restartGame);
+
+        loadGameData();
+        initShop();
+    </script>
+</body>
+</html>
